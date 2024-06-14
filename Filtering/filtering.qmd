@@ -1,0 +1,76 @@
+---
+jupyter: python3
+---
+
+### Imports
+
+```{python}
+import numpy as np
+from skimage import data, io
+```
+
+### Correlation Calculation
+
+```{python}
+def correlation(image: np.ndarray, kernel: np.ndarray, y, x):
+    correlation_val = 0
+    kernel_height, kernel_width = kernel.shape
+    for i in range(kernel_height):
+        for j in range(kernel_width):
+            correlation_val += kernel[i][j] * image[y + i][x + j]
+
+    return correlation_val
+```
+
+### Simple Averaging Kernel
+
+```{python}
+kernel_average = np.array([[1 / 9, 1 / 9, 1 / 9],
+                [1 / 9, 1 / 9, 1 / 9],
+                [1 / 9, 1 / 9, 1 / 9]])
+```
+
+### Get Coins image and get average of pixel 0, 0
+
+```{python}
+coins = data.coins()
+correlation_val = correlation(coins, kernel_average, 0, 0)
+print(f"Correlation: {correlation_val}")
+```
+
+### Apply Correlation Filter of a kernel for an entire image 
+
+```{python}
+def correlation_filter(image: np.ndarray, kernel: np.ndarray):
+    image_height, image_width = image.shape
+    kernel_height, kernel_width = kernel.shape
+    filtered_image = image.copy()
+    for i in range(image_height - kernel_height):
+        for j in range(image_width - kernel_width):
+            filtered_image[i][j] = correlation(image, kernel, i, j)
+
+    return filtered_image
+```
+
+
+```{python}
+filtered_image = correlation_filter(coins, kernel_average)
+io.imshow(filtered_image)
+io.show()
+```
+
+
+### Gaussian Filter
+The 2-D Gaussian filter is defined by 
+g(x, y) = e^[-(x^2 + y^2) / 2 * sigma^2]
+where sigma is the number of standard deviations we'd like
+
+
+```{python}
+def generate_gaussian_filter(size: int, sig=1):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+
+generate_gaussian_filter(3)
+```
