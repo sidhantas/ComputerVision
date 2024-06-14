@@ -71,6 +71,14 @@ def generate_gaussian_filter(size: int, sig=1):
     linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
     x, y = np.meshgrid(linspace, linspace)
     return np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+```
 
-generate_gaussian_filter(3)
+Apply Correlation Filter to image using gaussian filter
+
+```{python}
+gaussian_kernel = generate_gaussian_filter(3)
+
+filtered_image = correlation_filter(coins, gaussian_kernel)
+io.imshow(filtered_image)
+io.show()
 ```
