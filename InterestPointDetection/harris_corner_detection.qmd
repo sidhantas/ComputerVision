@@ -1,0 +1,258 @@
+---
+jupyter: python3
+---
+
+# Harris Corner Detection
+Harris Corner Detection works by taking a window of the image and if the intensity changes in all directions
+then that means we found a corner
+
+```{python}
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from PIL import Image
+from skimage import io, data
+import numpy as np
+from skimage import color
+```
+
+```{python}
+im = data.checkerboard()
+
+fig, ax = plt.subplots()
+ax.imshow(im)
+corner_coord = (45, 95)
+edge_coord = (55, 95)
+flat_coord = (55, 105)
+rect_corner = patches.Rectangle(corner_coord, 8, 8, linewidth=1, edgecolor='r', facecolor='none')
+rect_edge = patches.Rectangle(edge_coord, 8, 8, linewidth=1, edgecolor='b', facecolor='none')
+rect_flat = patches.Rectangle(flat_coord, 8, 8, linewidth=1, edgecolor='g', facecolor='none')
+ax.add_patch(rect_corner)
+ax.add_patch(rect_edge)
+ax.add_patch(rect_flat)
+plt.show()
+```
+
+If we look at the box on top of the checkerboard we can see how it's on a corner
+
+Let's look at the average intensity in this window
+
+```{python}
+def average_intensity(image: np.ndarray, start_coord, height, width):
+    (start_height, start_width) = start_coord
+    return np.sum(image[start_height: start_height +height, start_width:start_width+width]) / (height * width)
+
+print(f"Average Intensity at {corner_coord}: {average_intensity(im, corner_coord, 8, 8)}")
+```
+
+Let's look at the intensities around that point
+
+```{python}
+def print_surrounding_intensities(im, start_coord, height, width):
+    (start_height, start_width) = start_coord
+    for i in range(-2, 3, 2):
+        for j in range(-2, 3, 2):
+            if i == 0 and j == 0:
+                continue
+            curr_coord = (start_height + i, start_width + j)
+            print(f"Average Intensity at {curr_coord}: {average_intensity(im, curr_coord, height, width)}")
+
+print_surrounding_intensities(im, corner_coord, 8, 8)
+```
+
+Notice how the intensity changes in almost all directions, that means we found a corner
+
+If we did the same operation on an edge or flat area, there would be less changes
+
+```{python}
+print(f"Average Intensity at {edge_coord}: {average_intensity(im, edge_coord, 8, 8)}\n")
+print_surrounding_intensities(im, edge_coord, 8, 8)
+```
+
+Notice how when we move left and right the intensity stays the same
+
+
+```{python}
+print(f"Average Intensity at {flat_coord}: {average_intensity(im, flat_coord, 8, 8)}\n")
+print_surrounding_intensities(im, flat_coord, 8, 8)
+```
+Intensity stays the same when moving in a flat area
+
+
+Harris Corner detction uses this principle of local intensity changes, the steps are:
+
+1. Compute Horizontal and vertical derivatives of an image $I_{x}$ and ${I_y}$
+2. Combine these images into a matrix M
+3. Convolve the matrix M with a gaussian
+4. Compute the scalar "cornerness" using the eigenvalues of M
+5. Use the eigenvalues to detect interest points when above a threshold
+
+
+
+### Compute Horizontal and Vertical Derivatives of Image
+
+The image derivatives can be calculated by computing changes in intensity over a local area
+
+$$
+\frac{\partial I[x_m, y_n]}{\partial x} = \frac{I[x_m+1, y_n] - I[x_m-1, y_n]}{1}
+$$
+
+A kernel that represents this is:
+
+$$
+\begin{bmatrix}
+-1 & 0 & 1
+\end{bmatrix}
+$$
+
+and in the y direction:
+$$
+\begin{bmatrix}
+-1 \\ 0 \\ 1
+\end{bmatrix}
+$$
+
+Let's apply these kernels to the image
+
+
+```{python}
+def convolution(image: np.ndarray, kernel: np.ndarray, y, x):
+    convolution_val = 0
+    kernel_height, kernel_width = kernel.shape
+    for i in range(kernel_height):
+        for j in range(kernel_width):
+            convolution_val += kernel[kernel_height - i - 1][kernel_width - j - 1] \
+                * image[y + i][x + j]
+
+    return convolution_val
+
+def convolution_filter(image: np.ndarray, kernel: np.ndarray, output_dtype=None):
+    if output_dtype == None:
+        output_dtype = image.dtype
+    image_height, image_width = image.shape
+    kernel_height, kernel_width = kernel.shape
+    filtered_image = np.zeros(image.shape, dtype=output_dtype)
+    for i in range(image_height - kernel_height):
+        for j in range(image_width - kernel_width):
+            filtered_image[i][j] = convolution(image, kernel, i, j)
+
+    return filtered_image
+```
+
+```{python}
+x_derivative_kernel = np.array([[-1, 0, 1]])
+y_derivative_kernel = np.array([[-1], [0], [1]])
+
+im_x = convolution_filter(im, x_derivative_kernel)
+im_y = convolution_filter(im, y_derivative_kernel)
+f, axarr = plt.subplots(1,2)
+axarr[0].imshow(im_x)
+axarr[0].set_title("I_x")
+axarr[1].imshow(im_y)
+axarr[1].set_title("I_y")
+
+```
+
+
+Get 3 images that are in the M matrix
+
+$$
+M = \sum_{x, y} w(x, y)
+\begin{bmatrix} 
+I_xI_x & I_xI_y \\
+I_xI_y & I_yI_y
+\end{bmatrix}
+$$
+
+```{python}
+ix2 =np.square(im_x)
+iy2 = np.square(im_y)
+ixiy = np.multiply(im_x, im_y)
+f, axarr = plt.subplots(1,3)
+axarr[0].imshow(ix2)
+axarr[0].set_title("I_x^2")
+axarr[1].imshow(iy2)
+axarr[1].set_title("I_y^2")
+axarr[2].imshow(ixiy)
+axarr[2].set_title("I_x * I_y")
+
+plt.show()
+```
+
+Next is to convolve these images with our window function (Gaussian)
+
+```{python}
+def generate_gaussian_filter(size: int, sig=1):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+
+
+gaussian_filter = generate_gaussian_filter(3, 1.0)
+gix2 = convolution_filter(ix2, gaussian_filter)
+giy2 = convolution_filter(iy2, gaussian_filter)
+gixiy = convolution_filter(ixiy, gaussian_filter)
+f, axarr = plt.subplots(1,3)
+axarr[0].imshow(gix2)
+axarr[0].set_title("I_x^2")
+axarr[1].imshow(giy2)
+axarr[1].set_title("I_y^2")
+axarr[2].imshow(gixiy)
+axarr[2].set_title("I_x * I_y")
+plt.show()
+```
+
+Next we compute the scalar cornerness of the image using an R measure, we'll use:
+
+$$
+R = detM - k(traceM)^2
+$$
+
+Where $k$ is some constant
+
+
+```{python}
+detM = np.zeros(gix2.shape)
+ktraceM2 = np.zeros(gix2.shape)
+(height, width) = detM.shape
+k = 0.06
+for i in range(height):
+    for j in range(width):
+        detM[i][j] = np.linalg.det([  \
+            [gix2[i, j], gixiy[i, j]], \
+            [gixiy[i, j], giy2[i, j]]  \
+        ])
+        ktraceM2[i][j] = k * np.square(np.trace([  \
+            [gix2[i, j], gixiy[i, j]], \
+            [gixiy[i, j], giy2[i, j]]  \
+        ]))
+
+
+f, axarr = plt.subplots(1,2)
+axarr[0].imshow(detM)
+axarr[0].set_title("detM")
+axarr[1].imshow(ktraceM2)
+axarr[1].set_title("traceM")
+plt.show()
+
+```
+
+```{python}
+R = np.subtract(detM, ktraceM2)
+io.imshow(R)
+io.show()
+```
+
+```{python}
+corners = np.zeros(R.shape, dtype=np.uint8)
+(height, width) = corners.shape
+for i in range(height):
+    for j in range(width):
+        if R[i, j] > 30000:
+            corners[i, j] = 255
+
+io.imshow(corners)
+io.show()
+```
+
+
+We can tune this with k and apply non-maximum thresholding to get better results
