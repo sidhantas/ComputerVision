@@ -2,6 +2,16 @@
 jupyter: python3
 ---
 
+## Edge Detection
+Edge Detection can be done in many ways, the Marr Hildreth Edge Detector
+has 3 steps:
+
+1. Apply Gaussian filter to image
+2. Apply Laplcian filter to image
+3. Find the zero crossings in the resulting filtered image
+
+Note that we can use correlation or convolution because the kernels are symmetric
+
 ### Imports
 
 ```{python}
@@ -76,7 +86,7 @@ def generate_gaussian_filter(size: int, sig=1):
 Apply Correlation Filter to image using gaussian filter
 
 ```{python}
-gaussian_kernel = generate_gaussian_filter(3)
+gaussian_kernel = generate_gaussian_filter(3, 3)
 
 filtered_image = correlation_filter(coins, gaussian_kernel)
 io.imshow(filtered_image)

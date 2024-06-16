@@ -1,0 +1,323 @@
+---
+jupyter: python3
+---
+## Marr Hildreth Edge Detection
+Edge Detection can be done in many ways, the Marr Hildreth Edge Detector
+has 3 steps:
+
+1. Apply Gaussian filter to image
+2. Apply Laplcian filter to image
+3. Find the zero crossings in the resulting filtered image
+
+Note that we can use correlation or convolution because the kernels are symmetric
+
+
+### Imports
+
+```{python}
+import numpy as np
+from skimage import data, io
+```
+
+### Correlation and Laplacian of Gaussian Filter
+
+```{python}
+def convolution(image: np.ndarray, kernel: np.ndarray, y, x):
+    convolution_val = 0
+    kernel_height, kernel_width = kernel.shape
+    for i in range(kernel_height):
+        for j in range(kernel_width):
+            convolution_val += kernel[kernel_height - i - 1][kernel_width - j - 1] * image[y + i][x + j]
+
+    return convolution_val
+
+def convolution_filter(image: np.ndarray, kernel: np.ndarray, output_dtype=None):
+    if output_dtype == None:
+        output_dtype = image.dtype
+    image_height, image_width = image.shape
+    kernel_height, kernel_width = kernel.shape
+    filtered_image = np.zeros(image.shape, dtype=output_dtype)
+    for i in range(image_height - kernel_height):
+        for j in range(image_width - kernel_width):
+            filtered_image[i][j] = convolution(image, kernel, i, j)
+
+    return filtered_image
+```
+
+### Laplacian of Gaussian Filter
+
+We apply the Gaussian and Laplacian at the same time by calculating the Laplacian of the Gaussian
+formula before hand
+
+Note that the Laplacian of a function $\mathbb{R}^2 \rightarrow \mathbb{R}$ is:
+$$
+\frac{\partial^2 I}{\partial x^2} + \frac{\partial^2 I}{\partial y^2}
+$$
+
+And it finds the divergence of the gradient of a scalar function
+
+
+```{python}
+def laplacian_of_gaussian_filter(size: int, sig=1):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return (-1 / np.sqrt(2 * np.pi) * np.power(sig, 3)) * (2 - ((np.square(x) + np.square(y)) / np.square(sig))) * np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+
+print(laplacian_of_gaussian_filter(9, 1.4))
+```
+
+We now apply the LoG filter to an image to smooth the image and find where intensities change drastically 
+```{python}
+coins = data.coins()
+io.imshow(coins)
+io.show()
+
+```
+
+```{python}
+# Use float64 dtype so we get negative values
+filtered_image = convolution_filter(coins, laplacian_of_gaussian_filter(5, 0.8), output_dtype=np.float64)
+io.imshow(filtered_image)
+io.show()
+```
+
+
+### Find Zero Crossings
+
+We're now going to look for when going across the x and y axis where the values go from positive to negative or vice versa
+
+```{python}
+def find_zero_crossings(filtered_image: np.ndarray[np.float64], threshold=0.0):
+    image_height, image_width = filtered_image.shape
+    edges = np.zeros(filtered_image.shape, dtype=np.uint8)
+
+    for i in range(image_height):
+        for j in range(image_width):
+            if j > 0:
+                prev_pixel = filtered_image[i][j - 1]
+                curr_pixel = filtered_image[i][j]
+                if (prev_pixel < 0 and curr_pixel > 0 or prev_pixel > 0 and curr_pixel < 0):
+                    if np.abs(prev_pixel - curr_pixel) > threshold:
+                        edges[i][j] = 255
+            if i > 0:
+                prev_pixel = filtered_image[i - 1][j]
+                curr_pixel = filtered_image[i][j]
+                if (prev_pixel < 0 and curr_pixel > 0 or prev_pixel > 0 and curr_pixel < 0):
+                    if np.abs(prev_pixel - curr_pixel) > threshold:
+                        edges[i][j] = 255
+
+
+    return edges
+
+
+# Kernel size of 7 and sigma of 1.3 showed best results
+filtered_image = convolution_filter(coins, laplacian_of_gaussian_filter(7, 1.3), output_dtype=np.float64)
+edges = find_zero_crossings(filtered_image)
+io.imshow(edges)
+io.show()
+```
+
+The resulting image is the edges of the initial coins image
+
+Note that when finding zero crossings we should usually allow for 0's in between the transition from positive to negative and negative to positive
+
+We can also tune further by applying a threshold to what we consider a zero crossing by finding the absolute difference 
+
+```{python}
+filtered_image = convolution_filter(coins, laplacian_of_gaussian_filter(7, 1.3), output_dtype=np.float64)
+edges = find_zero_crossings(filtered_image, threshold=140)
+io.imshow(edges)
+io.show()
+```
+
+
+## Canny Edge Detector
+
+The Canny edge detector is similar to the Marr Hildreth Edge except we use the gradient instead of the Laplacian
+The 5 steps are:
+
+1. Smooth the image with Gaussian
+2. Compute the derivative of the smoothed image
+3. Find magnitude and orientation of gradient
+4. Apply Non-maximum suppression
+5. Apply Hysteresis threshold
+
+
+```{python}
+# working on coins again
+coins = data.coins()
+io.imshow(coins)
+io.show()
+```
+
+### Partial Derivatives of gaussian filter
+
+```{python}
+def generate_gaussian_filter(size: int, sig=1):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+
+def gaussian_partial_derivative_x(size: int, sig=1.):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return (-x / (np.sqrt(2. * np.pi) * np.power(sig, 3.))) * np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+
+def gaussian_partial_derivative_y(size: int, sig=1.):
+    linspace = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
+    x, y = np.meshgrid(linspace, linspace)
+    return (-y / (np.sqrt(2. * np.pi) * np.power(sig, 3.))) * np.exp(-0.5 * (np.square(x) + np.square(y)) / np.square(sig))
+```
+
+### Smooth with gaussian filter
+
+```{python}
+sigma = 1.0
+kernel_size = 3
+coins = convolution_filter(coins, generate_gaussian_filter(3, sigma), np.float64)
+```
+
+### and compute derivative with gaussian filter
+
+Applying the partial derivative filter we made earlier we are able to both smooth
+and compute the derivative at the same time
+
+Apply the x filter to coins
+```{python}
+smoothed_x = convolution_filter(coins, gaussian_partial_derivative_x(3, sigma), np.float64)
+io.imshow(smoothed_x)
+io.show()
+```
+
+Apply the y filter to coins
+
+```{python}
+smoothed_y = convolution_filter(coins, gaussian_partial_derivative_y(3, sigma), np.float64)
+io.imshow(smoothed_y)
+io.show()
+```
+
+### Find Magnitude of gradient
+Now that we have both smoothed images using each component of the gradient we can compose them
+together using their magnitude
+
+```{python}
+gradient_mag = np.sqrt(np.square(smoothed_x) + np.square(smoothed_y))
+io.imshow(gradient_mag)
+io.show()
+```
+
+### Apply non maximum suppression
+
+First we need the directional information of the gradient
+```{python}
+gradient_direction = np.arctan(smoothed_y, smoothed_x)
+io.imshow(np.degrees(gradient_direction))
+io.show()
+```
+
+A pixel is an edge if it is a local maximum in the direction of it's gradient
+
+```{python}
+import math
+def relative_comparison_pixel(angle):
+    return (np.rint(np.sin(angle)).astype(int), np.rint(np.cos(angle)).astype(int))
+
+def non_maximum_suppression(magnitude: np.ndarray[np.float64], direction: np.ndarray[np.float64]):
+    image_y, image_x = magnitude.shape
+    edges = np.zeros(magnitude.shape, dtype=magnitude.dtype)
+    def inside_image(pixel):
+        y, x = pixel
+        return (x >= 0 and y >= 0 and x < image_x and y < image_y)
+
+    for i in range(image_y):
+        for j in range(image_x):
+            magnitude_pixel = magnitude[i][j]
+            y_prime, x_prime = relative_comparison_pixel(direction[i][j])
+
+            comparison_pixel_1 = i - y_prime, j - x_prime
+            comparison_pixel_2 = i + y_prime, j + x_prime
+
+            if inside_image(comparison_pixel_1) and inside_image(comparison_pixel_2):
+                if magnitude_pixel > magnitude[comparison_pixel_1] and magnitude_pixel > magnitude[comparison_pixel_2]:
+                    edges[i, j] = magnitude_pixel 
+
+    # normalize between 0 and 1
+    edges = (edges-np.min(edges))/(np.max(edges)-np.min(edges)) 
+    return edges
+```
+
+```{python}
+edges = non_maximum_suppression(gradient_mag, gradient_direction)
+io.imshow(edges)
+io.show()
+```
+
+### Hysteresis Thresholding
+
+This works by declaring 2 thresholds low and high
+If the pixel is below the low threshold -> not an edge
+If the pixel is above high threshold -> is a strong edge
+If pixel is between low and high -> is a edge if it's connected to a strong edge
+
+
+```{python}
+def bounds_check(pixel, image):
+    y, x = pixel
+    image_y, image_x = image.shape
+    return (x >= 0 and y >= 0 and x < image_x and y < image_y)
+
+def neighbor_is_strong_edge(pixel, edges):
+    edges_y, edges_x = edges.shape
+
+    y, x = pixel
+
+    for (i, j) in [(1, 0), (0, 1), (-1, 0), (0, -1)]:
+        test_pixel = (y + i, x + j)
+        if bounds_check(test_pixel, edges) and edges[test_pixel] > 0.9:
+            return True
+
+    return False
+
+
+def hysteresis_thresholding(edges, rounds = 1):
+    high_threshold = 0.20
+    low_threshold = 0.05
+    edges[edges > high_threshold] = 1.0
+    edges[edges < low_threshold] = 0.0
+    y, x = edges.shape
+
+    for _ in range(rounds):
+        for i in range(y):
+            for j in range(x):
+                if (edges[i, j] > 0.0 and neighbor_is_strong_edge((i, j), edges)):
+                    if (edges[i, j] < 1.0):
+                        edges[i, j] = 1.0
+    return edges
+```
+
+```{python}
+edges = hysteresis_thresholding(edges, 1)
+io.imshow(edges)
+io.show()
+
+# 40 increments of hysteresis_thresholding
+# in reality we can just stop when no more stron edges are added
+edges = hysteresis_thresholding(edges, 40)
+io.imshow(edges)
+io.show()
+```
+
+Finally remove any edges that are not strong edges
+```{python}
+edges[edges < 1.0] = 0.0
+io.imshow(edges)
+io.show()
+```
+
+
+You can add heuristics for choosing the high and low threshold but I kept it manual for simplicity
+
+
+
+

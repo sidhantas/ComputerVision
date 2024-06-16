@@ -4,3 +4,5 @@ etc
 lib
 pyvenv.cfg
 share
+**/*
+!**/*.qmd
