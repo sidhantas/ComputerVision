@@ -1,0 +1,101 @@
+---
+jupyter: python3
+---
+
+# Scale Invariant Feature Transform (SIFT)
+
+The SIFT detector uses a scale space of an image to detect interest points
+
+There are 4 steps:
+
+1. Generate the peaks in a scale space
+2. Key point localization
+3. Orientation
+4. Key point descriptor
+
+```{python}
+from skimage import data, io
+import numpy as np
+from PIL import Image, ImageFilter
+import cv2 as cv
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter, gaussian_laplace
+```
+
+## Generate Peaks Scale Space
+
+First we need to create a scale space, we can create one fairly easily
+by creating an array of different images with different levels of gaussian
+smoothing
+
+
+
+```{python}
+# We'll be working on this image
+image = data.camera()
+io.imshow(image)
+io.show()
+```
+
+```{python}
+k = np.sqrt(2.)
+sigma = 0.5
+scale_space_size = 5
+
+blur = np.empty((scale_space_size,), dtype=np.ndarray)
+for scale in range(scale_space_size):
+    blur[scale] = (gaussian_filter(image, k**scale * sigma))
+
+fig, axarr = plt.subplots(1, min(4, len(blur)))
+for scale in range(len(axarr)):
+    axarr[scale].imshow(blur[scale])
+    axarr[scale].set_title(f"scale = {scale}")
+
+dog_scale_space = np.empty(len(blur) - 1, dtype=np.ndarray)
+for scale in range(scale_space_size - 1):
+    dog_scale_space[scale] = np.subtract(blur[scale + 1], blur[scale], dtype=np.float32)
+```
+
+Now that we have our scale space, we can go through all the different levels
+of DoG and find which pixels are an extrema between the 26 adjacent pixels
+(adjacent in same image and scale space)
+
+
+```{python}
+def find_local_extrema(scale_space: np.ndarray[np.ndarray], scale: int, theta: float=0.00):
+    lower_scale = scale_space[scale - 1]
+    current_scale = scale_space[scale]
+    upper_scale = scale_space[scale + 1]
+    (height, width) = current_scale.shape
+    extrema = np.zeros(current_scale.shape, dtype=np.uint8)
+    for i in range(1, height - 1):
+        for j in range(1, width - 1):
+            adjacent_pixels = lower_scale[i - 1:i - 1 + 3, j - 1: j - 1 + 3].flatten()\
+            + current_scale[i - 1:i-1 + 3, j- 1: j -1 + 3].flatten()\
+            + upper_scale[i - 1:i-1 + 3, j- 1: j -1 + 3].flatten()
+
+            if current_scale[i, j] == min(adjacent_pixels) or current_scale[i, j] == max(adjacent_pixels):
+                extrema[i, j] = 255
+
+    return extrema
+
+extrema = find_local_extrema(dog_scale_space, 1, theta=0.00) 
+overlayed_image = np.maximum(image, extrema) # overlay extrema on top of image
+io.imshow(overlayed_image)
+io.show()
+```
+
+We can see that we've detected some extrema with our first DoG scale 
+
+
+```{python}
+extrema = np.empty((len(dog_scale_space) - 1, ), dtype=np.ndarray)
+overlayed_image = image.copy()
+for i in range(1, len(dog_scale_space) - 1):
+    extrema[i] = find_local_extrema(dog_scale_space, i, theta=0.03)
+    overlayed_image = np.maximum(overlayed_image, extrema[i])
+
+io.imshow(overlayed_image)
+io.show()
+```
+

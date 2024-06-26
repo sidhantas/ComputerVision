@@ -1,0 +1,58 @@
+---
+jupyter: python3
+---
+
+# Scale Space
+
+The main idea behind a scale space is that different levels of gaussian smoothing will 
+present different features. So when we use the gaussian filter or it's derivatives, we 
+can use different scales (sigma values) to get different responses from features
+
+
+We can use the scale space to approximate the LoG using a difference of 2 gaussian blur
+levels. This is called Difference of Gaussian (DoG)
+
+## Scale Space of an Image
+
+```{python}
+from skimage import data, io
+import numpy as np
+from PIL import Image, ImageFilter
+import cv2 as cv
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter, gaussian_laplace
+```
+
+```{python}
+# We'll be working on this image
+image = data.camera()
+io.imshow(image)
+io.show()
+```
+
+Apply a Gaussian filter to an image over multiple scales to create a scale space
+```{python}
+k = np.sqrt(2.)
+sigma = 1.2
+scale_space_size = 4
+
+blur = []
+for scale in range(scale_space_size):
+    blur.append(gaussian_filter(image, k**scale * sigma))
+
+
+fig, axarr = plt.subplots(1, scale_space_size)
+for scale in range(len(blur)):
+    axarr[scale].imshow(blur[scale])
+    axarr[scale].set_title(f"scale = {scale}")
+```
+
+We can now get the Difference of Gaussian
+```{python}
+fig, axarr = plt.subplots(1, scale_space_size - 1)
+for scale in range(scale_space_size - 1):
+    axarr[scale].imshow(np.subtract(blur[scale + 1], blur[scale], dtype=np.float32))
+    axarr[scale].set_title(f"DoG = {scale + 1} - {scale}")
+```
+
+And this is the scale space that we now work on
